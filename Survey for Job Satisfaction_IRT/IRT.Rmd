@@ -1,0 +1,202 @@
+---
+title: "Item Response Theory (IRT) for Job Satisfaction Survey "
+author: "Daisy Shi"
+date: "11/9/2021"
+output: word_document
+---
+
+
+```{r}
+#https://www.kaggle.com/annettecatherinepaul/irt-analysis-using-job-satisfaction-survey/notebook#Modelling-using-GRM
+
+
+data<-read.csv("/Users/daisyshi/Desktop/Survey for Job Satisfaction/Survey_data.csv")
+head(data)
+a <- data[,c(5:23)]
+b <- data[, c(32:49)]
+c <- data[, c(65:71)]
+combine <- cbind(a,b,c)
+names(combine)
+
+# Missing Values Treatment
+# Now, lets take a deeper look into the missing values.
+
+#check for missing values in each series
+sapply(combine, function(x) sum(is.na(x)))
+sapply(a, function(x) sum(is.na(x)))
+sapply(b, function(x) sum(is.na(x)))
+sapply(c, function(x) sum(is.na(x)))
+
+#Impute the missing values, the imputation will take some time 
+library("mice")
+library(randomForest)
+library(mice)
+
+set.seed(123)
+imp <- mice(combine, method = "rf", m = 5)
+
+final <- complete(imp)
+sapply(final, function(x) sum(is.na(x)))
+
+#Extract the clean sets 
+clean_a <- final[,1:19]
+clean_b <- final[,20:37]
+clean_c <- final[,38:44]
+
+#Check if correct extraction has been done 
+names(clean_a)
+names(clean_b)
+names(clean_c)
+
+#Exploratory Data Analysis
+#In this section we will first look into the frequency of responses. Post which, we will look into #how the correlations between the items looks like. If the items arent correlated we need to #assess the fit of it in our further analysis.
+
+#Load the necessary libraries 
+library(ltm) 
+library(corrplot)
+library(psych)
+#To understand the frequency spread 
+description <- descript(final)
+description$perc * 100
+#To understand the correlation statistics 
+relation <- cor(final, method = "spearman")
+relationa <- cor(clean_a, method = "spearman")
+relationb <- cor(clean_b, method = "spearman")
+relationc <- cor(clean_c, method = "spearman")
+par(mfrow=c(2,2))
+corrplot(relation, type = "lower", order = "hclust")
+corrplot(relationa, type = "lower", order = "hclust")
+corrplot(relationb, type = "lower", order = "hclust")
+corrplot(relationc, type = "lower", order = "hclust")
+
+#We can observe that all the plots exhibit strong positive correlations. Hence we can use the #whole dataset for our analysis without further cleaning on the grounds of correlation.
+
+#Pre Model Checks
+#Before producing to model building, we need to understand if our analysis should take a multi dimensional or uni dimensional approach. This can be visualized using principal components and the scree plot which uses a plot of successive eigen vectors. Ideally if the first principal component (PC1) can explain atleast 40% of the variaition in the data, it should be good enough to take the unidimensionality approach in IRT.
+
+#But sometimes we are not okay with this threshold which is assumed over years of analysis and research. Hence we can take a look at the factor model for better understanding of how the underlying structure of our dataset looks like.
+
+#load the libraries 
+library(ggfortify)
+library(ggplot2)
+
+#First let's look into the principal components to see if there is any exhbition of unidimensionality
+par(mfrow=c(1,1))
+pc <- prcomp(final)
+summary(pc)
+#We can see that approximately 44% of the data is explained by the first principal component. Now let's look into the scree plot for verification of the same.
+
+
+autoplot(pc, data = final)
+#Scree plot
+library(psych)
+scree(final)
+
+#The scree plot suggests unidimensionality approach as well. Additionally lets take a look at the factor plot to understand the underlying structure of our dataset.
+
+
+#factor plot 
+plot(omega(final))
+omega(final)
+
+```
+This plot explains the underlying structure of the dataset. We can see that the general load factor is distributed among three factors as confirmed by the three series. However, IRT analysis ignores these three factors and tries to formulate a cumulative relationship known as the latent trait which in pur case is the job satisfaction. Additionally, it is interesting to note tha B2a seems to have a higher load than other loadings which is a shift away from the general trend. This could depict that this particular item is too generalized leading to ineffective discrimination and thus rendering the contribution of that item, not much useful. Hence one should try and avoid such items or look into factor treatments. Additionally the qualitative aspects of the item can also help you determine the overall use of the item. While removing the item, you need to ensure that the newly formed structure is viable for modelling and that it converges. However for our analysis we will be using the full dataset as our aim is to provide a comprehensive analysis of the whole dataset.
+
+##Modelling using GRM
+Since we are using likert scale ranging from 1 to 8, from strongly agree to strongly disagree with 8 being N/A. A Graded Response Model would be ideal for our analysis. The ltm package offers grm functionalities.
+```{r}
+#Fit the GRM model and check for convergence 
+library(ltm)
+fit <- grm(final, IRT.param = TRUE)
+fit$convergence
+fit
+```
+If the model has converged, you should see an output of 0. With convergence we can proceed with our unidimensionality approach towards modelling. Now let's examine the fit. Ideally we want to see high descrimination power to conclude towards good analysis.
+```{r}
+par(mfrow=c(2,2))
+
+#Item Information Curves
+plot(fit, type ="IIC", lwd = 1.5, item = 1:19, main = "Item Information Curves for A")
+plot(fit, type ="IIC", lwd = 1.5, item = 20:37, main = "Item Information Curves for B")
+plot(fit, type ="IIC", lwd = 1.5, item = 38:44, main = "Item Information Curves for C")
+
+#Test Information Plot 
+plot(fit, type = "IIC", item = 0, lwd = 2)
+```
+We can observe a high Information ability with series A, followed by B and least for C. The Test Information Function plot suggests the same as well. In general the dataset contirbutes well enough with respect to understanding the latent trait of job satisfaction.
+
+Now let's take a look at the top performing items and the least performing items to compare and contrast. This is done by looking into the discrimination coefficients.
+
+To understand the item description for each item, take a look at the source dataset.
+```{r}
+#Item Response Category Characterstics Curves and Item Information Curves for top performing items 
+par(mfrow=c(3,2))
+plot(fit, lwd = 2, item = c(17,16,19,9,7))
+plot(fit, type = "IIC", item = c(17,16,19,9,7), lwd = 2)
+```
+Let us focus on the first plot. This is the plot with the highest descrimination power. Since our dataset ratings start from strongly agree and moves on to strongly disagree, this plot speaks of job dissatisfaction. In general responders strongly agree that they are satisfied contributing to the latent trait. As the ability increases the job dissatisfaction increases.
+
+In general we can see how the item information curves for these five items are very high.
+
+Now let us look into the lowest performing items.
+```{r}
+#Item Response Category Characterstics Curves and Item Information Curves for least performing items 
+par(mfrow=c(3,2))
+plot(fit, lwd = 2, item = c(44, 29, 26, 25, 28))
+plot(fit, type = "IIC", lwd = 2, item = c(44, 29, 26, 25, 28))
+```
+We can see how these plots have a very low level steeps, which suggests the low information / descrimination of the item. This could be because of the over generalization of the item query. A qualitative analysis is required to assess the fit of this item in the survey.
+
+Let us look into the factor scores of these observations. For every unique response pattern, a latent score coefficient is calculated.
+
+```{r}
+factor <- ltm::factor.scores(fit, method = "EAP")
+plot(factor)
+```
+We can see that the peak is around 0. Ideally, the goal is to shift this peak towards the left, to achieve maximum job satisfaction.
+
+##Model Evaluation
+To ensure that our model is contributing and performing better, we fit another model using the same datased by constraining the descrimination to be the same. Post which, we compared the group means between the two models to look into the overall performance of the model.
+
+```{r}
+#fit the constrained model 
+fit_test <- grm(final, constrained = TRUE, IRT.param = TRUE)
+fit_test$convergence 
+fit_test
+#Now, we want to compare the constrained model with the unconstrained model.
+
+#Fit test using comparison of group means 
+anova(fit_test, fit)
+```
+The p-value, when compared to a threshold value of 5%, is significant, suggesting the negation of the null hypothesis that the model is insignificant.
+
+We can see that the BIC and AIC of our model is considerably lower than the constrained model, suggesting improved model performance.
+
+
+Conclusion and Recommendations
+From the results of this study, we are able to assess the effectiveness of the EPS in measuring job satisfaction. We also gain a better understanding of each question item's descriminating power by fitting a graded response model.
+
+Public sector entities should focus on the results from the following question items as these highlight employee sentiment on job satisfaction better:
+
+My agency inspires me to do the best in my job
+My agency motivates me to help it achieve its objectives
+I would recommend my agency as a great place to work
+My agency's senior leaders provide effective leadership
+I feel that my agency on the whole is well managed
+Public sector entities should further leverage the analysis of the following items with low discrimination results. This suggests a high chance of these items being generalised and could be important on a qualitative basis to the organisation. If they are deemed as irrelevant measures to the organisation, they can be excluded from further surveys owing to means of reduction of the same.
+
+Purchasing decisions in my workplace are not influenced by gifts or incentives
+The people in my work group are committed to providing excellent customer service and making a positive difference to the community
+The people in my work group use their time and resources efficiently
+My immediate supervisor appropriately deals with employees who perform poorly
+In the past 12 months, my work group has implemented innovative processes or policies
+With the resulting test information curve, we determine that this subset of questions is able to distinguish employees which are dissatisfied with their jobs and are suitable for identifying action areas. As such, we recommend that PSC conducts an annual employee survey across all public sector entities using this as the preliminary study for a shortened evaluation. Feedback should be collected across the broader public sector to ensure comparability of data and better action planning to remediate issues or pain points.
+
+With respect to the bifactor model as mentioned in the Exploratory Data Analysis section, we can see that there is an inherent latent trait wherein 3 factors are visualised and ignored by the IRT to focus on one latent trait. A possible approach would be to look for multidimensional IRT approaches for a better understanding of the contribution of these inherent traits as a factor or as a correlated factor. This can possibly open doors to more queries and thus formulating a better representative of the perceptions of the broader society.
+
+With the analysis of the GRM modelling mentioned above, we can use items whose discrimination powers are relevant to the study and further use a subset approach towards modelling. We can conduct a similar analysis to evaluate the possible model performance of the same. If successful, we would have considerably lowered the items and thus looked into dimensionality reduction which is indeed important when compared to the lengthy survey.
+
+
+
+
+
